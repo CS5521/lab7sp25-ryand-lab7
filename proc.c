@@ -21,6 +21,13 @@ extern void trapret(void);
 
 static void wakeup1(void *chan);
 
+#define RAND_MAX ((1U << 31) - 1)
+static int rseed = 1898888478;
+int random()
+{
+  return rseed = (rseed * 1103515245 + 12345) & RAND_MAX;
+}
+
 void
 pinit(void)
 {
@@ -329,7 +336,7 @@ wait(void)
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
 void
-scheduler(void)
+schedulerRR(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
@@ -361,6 +368,74 @@ scheduler(void)
     }
     release(&ptable.lock);
 
+  }
+}
+
+// lab7: lottery scheduler
+void
+scheduler(void)
+{
+  struct cpu *c = mycpu();
+  c->proc = 0;
+
+  struct proc *p;
+  int ntickets;
+  int winner;
+
+  int nticks;
+
+  for (;;) {
+    ntickets = 0;
+
+    sti();
+    acquire(&ptable.lock);
+    // Calculate total number of tickets
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      if (p->state == RUNNABLE) {
+        ntickets += p->tickets;
+      }
+    }
+
+    // if nothing is RUNNABLE, try again
+    if (ntickets == 0) {
+      release(&ptable.lock);
+      continue;
+    }
+
+    // generate winning ticket
+    winner = random() % ntickets;
+
+    // find winner
+    ntickets = 0;
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      if (p->state != RUNNABLE)
+        continue;
+
+      ntickets += p->tickets;
+      if (ntickets > winner)
+        break;
+    }
+
+    // save current tick count
+    //acquire(&tickslock);
+    nticks = ticks;
+    //release(&tickslock);
+
+    // switch to winner
+    c->proc = p;
+    switchuvm(p);
+    p->state = RUNNING;
+
+    swtch(&(c->scheduler), p->context);
+    switchkvm();
+
+    // process is done for now; add tick difference and ready for next scheduling
+    c->proc = 0;
+    //acquire(&tickslock);
+    p->ticks += ticks - nticks;
+    //release(&tickslock);
+
+    release(&ptable.lock);
   }
 }
 
