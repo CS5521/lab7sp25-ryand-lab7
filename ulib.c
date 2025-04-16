@@ -3,6 +3,7 @@
 #include "fcntl.h"
 #include "user.h"
 #include "x86.h"
+#include "pstat.h"
 
 char*
 strcpy(char *s, const char *t)
@@ -104,3 +105,18 @@ memmove(void *vdst, const void *vsrc, int n)
     *dst++ = *src++;
   return vdst;
 }
+
+// lab7: ps
+void
+ps()
+{
+  pstatTable pstat;
+  getpinfo(&pstat);
+  printf(1, "PID\tTKTS\tTCKS\tSTAT\tNAME\n");
+  int i;
+  for (i = 0; i < NPROC; i++) {
+    if (pstat[i].inuse)
+      printf(1, "%d\t%d\t%d\t%c\t%s\n", pstat[i].pid, pstat[i].tickets, pstat[i].ticks, pstat[i].state, pstat[i].name);
+  }
+}
+

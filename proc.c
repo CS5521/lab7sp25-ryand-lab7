@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "pstat.h"
 
 struct {
   struct spinlock lock;
@@ -142,6 +143,10 @@ userinit(void)
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
 
+  // lab7: initialize ticks and tickets
+  p->ticks = 0;
+  p->tickets = 10;
+
   // this assignment to p->state lets other cores
   // run this process. the acquire forces the above
   // writes to be visible, and the lock is also needed
@@ -202,6 +207,10 @@ fork(void)
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
+
+  // lab7: set ticks and tickets
+  np->ticks = 0;
+  np->tickets = (curproc->tickets > 10) ? curproc->tickets : 10;
 
   for(i = 0; i < NOFILE; i++)
     if(curproc->ofile[i])
@@ -532,3 +541,61 @@ procdump(void)
     cprintf("\n");
   }
 }
+
+// lab7: fillpstat
+void
+fillpstat(pstatTable * pstat)
+{
+  int i;
+  struct proc *p;
+  enum procstate state;
+
+  acquire(&ptable.lock);
+  for (i = 0; i < NPROC; i++) {
+    p = &ptable.proc[i];
+    if (p->state == UNUSED) {
+      (*pstat)[i].inuse = 0;
+    } else {
+      (*pstat)[i].inuse = 1;
+      (*pstat)[i].tickets = p->tickets;
+      (*pstat)[i].pid = p->pid;
+      (*pstat)[i].ticks = p->ticks;
+      safestrcpy((*pstat)[i].name, p->name, sizeof(p->name)); 
+      state = p->state;
+      if (state == EMBRYO) {
+        (*pstat)[i].state = 'E';
+      } else if (state == SLEEPING) {
+        (*pstat)[i].state = 'S';
+      } else if (state == RUNNABLE) {
+        (*pstat)[i].state = 'A';
+      } else if (state == RUNNING) {
+        (*pstat)[i].state = 'R';
+      } else { // ZOMBIE
+        (*pstat)[i].state = 'Z';
+      }
+    }
+  }
+  release(&ptable.lock);
+}
+
+int
+settickets(int tickets)
+{
+  if (tickets < 10)
+    return -1;
+
+  struct proc *curproc = myproc();
+  struct proc *p;
+  
+  acquire(&ptable.lock);
+  for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+    if (p == curproc) {
+      p->tickets = tickets;
+      release(&ptable.lock);
+      return 0;
+    }
+  }
+  release(&ptable.lock);
+  return -1;
+}
+
